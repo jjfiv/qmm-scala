@@ -7,8 +7,9 @@ API:
 qmm.method(list of minterms, list of don't cares, list of variable names)
 
 TODOS:
+  - Handle multiple functions
   - rewrite genImplicants to be more functional
   - Implement Branching or Petrick's Method for cyclic patterns.
-	- Implement optional tabular output
-	- Handle special cases better
-	- Store implicants more efficiently (bitfield instead of a set)
+  - Implement optional tabular output
+  - Handle special cases better
+  - Store implicants more efficiently (bitfield instead of a set)
