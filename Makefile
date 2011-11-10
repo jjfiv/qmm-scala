@@ -16,5 +16,5 @@ scrun:
 	$(SCALA_RUN) main.scala
 	
 run: main.class
-	@$(SCALA_RUN) $(OUT_CLASS)
+	$(SCALA_RUN) $(OUT_CLASS)
 

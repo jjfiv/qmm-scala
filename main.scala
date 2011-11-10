@@ -1,6 +1,4 @@
 import scala.annotation.tailrec
-import scala.collection.mutable.{Set => MutableSet}
-import scala.collection.mutable.{Map => MutableMap}
 
 object qmm {
     def bitcount(x: Int): Int = {
@@ -12,27 +10,23 @@ object qmm {
     }
     def genImplicants(zero_cubes: List[Implicant], order: Int): List[Implicant] = {
 
+        import scala.collection.mutable.{Set => MutableSet}
+
         //--- generate list and populate with zero-cubes
         var implicants = MutableSet[Implicant]()
         for(i <- zero_cubes) implicants += i
-        
+
         //--- operate on current order until highest reached
         for(currentOrder <- 0 until order) {
             //--- grab all implicants of the current order
             val data = implicants.toList.filter(_.order == currentOrder)
-
-            //println("Order " + currentOrder + "/" + order + "\n>>  "+data)
 
             for(List(a, b) <- data.combinations(2)) {
                 if(a.canCombine(b)) {
                     a.prime = false
                     b.prime = false
 
-                    //println("Can combine " + a + " and " + b)
                     val n = a.combine(b)
-                    //println("Became: " + n)
-                   
-                    //n.print()
 
                     implicants += n
                 }
@@ -40,230 +34,191 @@ object qmm {
         }
 
         implicants.toList
-   }
+    }
 
-   def method(minterms: List[Int], dontcares: List[Int], vars: List[String]) {
+    def method(minterms: List[Int], dontcares: List[Int], vars: List[String]) {
         val implicants = (minterms:::dontcares).sorted.sortBy(bitcount(_)).map(new Implicant(_))
         val order = vars.length
-        var table = new PrimeImplicantTable(minterms, genImplicants(implicants, order).filter(_.prime))
 
-        table.solve()
-        
-        println(
-            table.results.map(_.withVars(vars)).toList.sorted.reduceLeft(_ + " + " + _)
-            )
-   }
+        val prime_implicants = genImplicants(implicants, order).filter(_.prime)
 
-   def main(args: Array[String]) {
-       method(List(0,1,2,3,4,7,6,8,11,13,15), Nil, List("A","B","C","D"))
-       method(List(1,2,3,5,9,10,11,18,19,20,21,23,25,26,27),Nil,List("A","B","C","D","E"))
+        val results = PITable.solve(prime_implicants, minterms)
 
+        println(results.toSumOfProducts(vars))
+       
+    }
+
+    def main(args: Array[String]) {
+        method(List(0,1,2,3,4,7,6,8,11,13,15), Nil, List("A","B","C","D"))
+        method(List(1,2,3,5,9,10,11,18,19,20,21,23,25,26,27),Nil,List("A","B","C","D","E"))
+        //method(List(0,1,2,3),Nil,List("X","Y"))
     }
 }
 
-class PrimeImplicantTable(minterms: List[Int], implicants: List[Implicant]) {
 
-    //--- mutable class that slowly covers less and less
-    class PrimeImplicant(val implicant: Implicant) {
-        var terms = MutableSet[Int]()
-        implicant.terms().map(terms += _)
-        val tag = implicant.tag
-        val order = implicant.order()
-        var gateCost = 1
+//--- class that slowly covers less and less
+class PrimeImplicant(val implicant: Implicant, val terms: Set[Int]) {
+    val tag = implicant.tag
+    val order = implicant.order()
 
-        //--- remove given terms from this data's effect
-        def reduce(coveredTerms: MutableSet[Int]) = for(t <- coveredTerms) terms -= t
-        //--- if this is higher order and contains all the minterms of the other
-        def dominates(other: PrimeImplicant) = ((other.order <= order) && (other.terms.subsetOf(terms)))
+    //--- remove given terms from this data's effect
+    def reduce(coveredTerms: Set[Int]) = { 
+        new PrimeImplicant(implicant, terms -- coveredTerms)
+    }
+    //--- if this is higher order and contains all the minterms of the other
+    def dominates(other: PrimeImplicant) = ((other.order <= order) && (other.terms.subsetOf(terms)))
         //--- whether this contains a given minterm or not
-        def covers(minterm: Int) = terms.contains(minterm)
+    def covers(minterm: Int) = terms.contains(minterm)
         //--- whether this is now empty
-        def empty() = terms.size == 0
+    def empty() = terms.size == 0
 
-        override def equals(that: Any) = that match {
-            case other: PrimeImplicant => hashCode == other.hashCode
-            case _ => false
+    override def equals(that: Any) = that match {
+        case other: PrimeImplicant => hashCode == other.hashCode
+        case _ => false
+    }
+    //override def hashCode = implicant.hashCode
+    override def toString() = terms.mkString("",",","")
+}
+
+object PITable {
+    def solve(primeImplicants: List[Implicant], minterms: List[Int]) = {
+        
+        val start = new PITable(
+            primeImplicants.map(x => new PrimeImplicant(x, x.terms().toSet)),
+            minterms.toSet,
+            Set[Implicant]()
+        )
+        
+        val result = reduceTable(start)
+        if(result.finished) {
+            result
+        } else {
+            assert(false)
+            result
         }
-        override def toString() = terms.mkString("",",","")
+    }
+    @tailrec def reduceTable(t: PITable): PITable = t.selectEssential match {
+        case (true, newTable) => reduceTable(newTable.reduceRows)
+        case (false, _) => t.reduceRows
+    }
+}
+
+class PITable(val rows: List[PrimeImplicant], val cols: Set[Int], val results: Set[Implicant]) {
+
+    def finished = cols.size == 0
+    def selectRow(row: PrimeImplicant) = {
+        val nRows = rows.filter(_ != row).map(_.reduce(row.terms))
+        val nCols = cols -- row.terms
+        val nRes  = results + row.implicant
+        new PITable(nRows, nCols, nRes)
     }
 
-    var rows = implicants.map(new PrimeImplicant(_))
-    var cols = minterms.toSet
-    var results = MutableSet[Implicant]()
-
-    def solve() {
-        //--- remove all don't cares from PI data
-        for(row <- rows) {
-            for(term <- row.terms) {
-                if(!cols.contains(term)) {
-                    row.terms -= term
-                }
+    def reduceRows = {
+        var nRows = rows.filter(!_.empty())
+        for(List(a,b) <- rows.combinations(2)) {
+            if(a dominates b) {
+                nRows = nRows.filter(_ != b)
+            } else if(b dominates a) {
+                nRows = nRows.filter(_ != a)
             }
         }
-
-        var watchdog = 0
-        while(watchdog < 10) {
-            watchdog+=1
-            reduceRows()
-            if(selectEssential()) {
-                watchdog = 0
-            }
-        }
-
-        reduceRows()
-
-        if(mintermsLeft) {
-            println("TODO: Implement Branching Method")
-            println("For now, select all remaining until done")
-        }
-
-        while(mintermsLeft) {
-            selectRow(rows.toList(0))
-        }
+        new PITable(nRows, cols, results)
     }
 
-    def selectRow(row: PrimeImplicant) {
-        //--- remove it from the rows
-        rows = rows.filter(_ != row)
-        //--- remove the columns
-        cols --= row.terms
-        //--- go reduce all the remaining rows
-        rows.map(_.reduce(row.terms))
+    def rowsForMinterm(m: Int) = (for (row <- rows if row.covers(m)) yield row).filter(_ != ())
 
-        results += row.implicant
-    }
-
-    def selectEssential(): Boolean = {
+    def selectEssential = {
+        var newTable = this
         var done = false
         var effective = false
 
         while(!done) {
             done = true
-            for(m <- cols) {
-                implicantsForMinterm(m).filter(_ != ()) match {
+            for (m <- cols) {
+                newTable.rowsForMinterm(m) match {
                     case List(x: PrimeImplicant) => {
                         done = false
                         effective = true
-                        //--- there's only one?
-                        //println("Select " + x + " for minterm " + m)
-                        selectRow(x)
+                        newTable = newTable.selectRow(x)
                     }
                     case _ => ()
                 }
             }
         }
 
-        effective
+        (effective, newTable)
     }
 
-    def reduceRows() {
-        //--- remove rows that cover nothing
-        rows = rows.filter(!_.empty())
-        //--- remove any term from a row that doesn't have a corresponding column
+    def toSumOfProducts(vars: List[String]) = {
+        assert(finished)
 
-        var done = false
-        while(!done) {
-            for(List(rowA, rowB) <- rows.combinations(2)) {
-                if(rowA dominates rowB) {
-                    //println(rowA.implicant + " dominates " + rowB.implicant)
-                    rows = rows.filter(_ != rowB)
-                }
-                else if(rowB dominates rowA) { 
-                    //println(rowB.implicant + " dominates " + rowA.implicant)
-                    rows = rows.filter(_ != rowA)
-                }
-            }
-            done = true
-        }
+        results.map(_.withVars(vars)).toList.sorted.reduceLeft(_ + " + " + _)
     }
 
-    def mintermsLeft = cols.size != 0
-
-    def implicantsForMinterm(minterm: Int) = {
-        for( row <- rows ) yield {
-            if( row.covers(minterm) ) row
-        }
-    }
-
-    def print() {
-        println("Prime Implicant table:")
-
-        printf("%-16s |", "")
-        for(col <- cols) {
-            printf(" %2d |", col)
-        }
-        println() //newline
-        printf("==================")
-        for(col <- cols) {
-            printf("=====")
-        }
-        println() //newline
-
-        for(row <- rows) {
-            printf("%-16s |", row)
-            for(minterm <- cols) {
-                if(row.covers(minterm)) printf("  X |")
-                else                    printf("    |")
-            }
-            println(); //newline
-        }
-    }
 }
 
 class Implicant(val minterm: Int, val tag:Int=1, val group:List[Int]=Nil) {
     var prime: Boolean = true
-  
+
     def order(): Int = {
-      return group.length
+        return group.length
     }
+
     def terms() = {
         var terms: List[Int] = List(minterm)
-        for(difference <- group) {
-          terms = terms ::: terms.map(_+difference)
+            for(difference <- group) {
+            terms = terms ::: terms.map(_+difference)
         }
         terms
     }
+
     def canCombine(other: Implicant): Boolean = {
         //--- if the other one is less than this, don't bother comparing
         //if (other.minterm < minterm)
-            //return false
-  
+        //return false
+
         //--- only include ones that exist in at least one function
         if ((other.tag & tag) == 0)
             return false
-  
+
         //--- if differences are not equivalent, don't bother comparing
         if (group != other.group)
             return false
-  
+
         def bitdist(x: Int, y: Int) = qmm.bitcount(x ^ y)
-  
+
             //--- difference needs to be just one bit
         if (bitdist(other.minterm,minterm) != 1) 
             return false
-  
+
         return true
     }
+    
     override def equals(that: Any) = that match {
         case other: Implicant => {
             hashCode == other.hashCode
         }
         case _ => false
     }
+
     override def hashCode = terms().hashCode
+    
     def combine(other: Implicant): Implicant = {
         val newtag = other.tag & tag;
         val diff   = math.abs(other.minterm - minterm)
         val newgroup = (group ::: List(diff)).sorted
         val newmt  = if(minterm > other.minterm) other.minterm else minterm
-  
+
         return new Implicant(newmt, newtag, newgroup)
     }
+
     override def toString() = terms().mkString("<",",",">")
+
     def printTerms() = println(terms().mkString("(",",",")"))
-    def print() {
+        def print() {
         printf("%d %s tag=%d %s\n", minterm, group.mkString("(",",",")"), tag, if (prime) {"prime"} else {""})
     }
+
     def withVars(vars: List[String]): String = {
         val weights = (0 until vars.length).map(1 << _).reverse
         val varByWeight = (weights zip vars).toMap
