@@ -1,0 +1,14 @@
+QMM-SCALA
+
+A scala implementation of the Quine McCluskey method I learned in Advanced Logic Design, and a chance to practice functional programming.
+
+API:
+
+qmm.method(list of minterms, list of don't cares, list of variable names)
+
+TODOS:
+  - rewrite genImplicants to be more functional
+  - Implement Branching or Petrick's Method for cyclic patterns.
+	- Implement optional tabular output
+	- Handle special cases better
+	- Store implicants more efficiently (bitfield instead of a set)
