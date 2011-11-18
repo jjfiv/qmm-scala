@@ -42,15 +42,23 @@ object qmm {
 
         val prime_implicants = genImplicants(implicants, order).filter(_.prime)
 
-        val results = PITable.solve(prime_implicants, minterms)
+        val results = PITable.solve(prime_implicants, minterms, vars)
+        //println(results)
 
         println(results.toSumOfProducts(vars))
        
     }
 
     def main(args: Array[String]) {
-        method(List(0,1,2,3,4,7,6,8,11,13,15), Nil, List("A","B","C","D"))
-        method(List(1,2,3,5,9,10,11,18,19,20,21,23,25,26,27),Nil,List("A","B","C","D","E"))
+        def letters(x: String): List[String] = x.split("").filter(_ != "").toList
+        
+        method(List(0,1,2,3,4,7,6,8,11,13,15), Nil, letters("ABCD"))
+        method(List(1,2,3,5,9,10,11,18,19,20,21,23,25,26,27),Nil,letters("ABCDE"))
+        //--- cyclic:
+        method(List(8,10,16,18,19,20,21,23,25,27,29,40,42,43,46,47,55), Nil, letters("ABCDEF"))
+
+        //--- don't cares
+        method(List(1,4,7,14,17,20,21,22,23), List(0,3,6,19,30), letters("ABCDE"))
         //method(List(0,1,2,3),Nil,List("X","Y"))
     }
 }
@@ -81,20 +89,23 @@ class PrimeImplicant(val implicant: Implicant, val terms: Set[Int]) {
 }
 
 object PITable {
-    def solve(primeImplicants: List[Implicant], minterms: List[Int]) = {
+    def solve(primeImplicants: List[Implicant], minterms: List[Int], vars: List[String]) = {
         
         val start = new PITable(
             primeImplicants.map(x => new PrimeImplicant(x, x.terms().toSet)),
             minterms.toSet,
-            Set[Implicant]()
+            Set[Implicant](),
+            vars
         )
         
-        val result = reduceTable(start)
-        if(result.finished) {
-            result
-        } else {
-            assert(false)
-            result
+        bestSolution(start)
+    }
+    //@tailrec
+    def bestSolution(t: PITable): PITable = t.finished match {
+        case true => t
+        case false => {
+            val branches = for(row <- t.rows) yield bestSolution(reduceTable(t.selectRow(row)))
+            branches.minBy(_.cost(t.vars.length))
         }
     }
     @tailrec def reduceTable(t: PITable): PITable = t.selectEssential match {
@@ -103,14 +114,17 @@ object PITable {
     }
 }
 
-class PITable(val rows: List[PrimeImplicant], val cols: Set[Int], val results: Set[Implicant]) {
+case class PITable(val rows: List[PrimeImplicant], val cols: Set[Int], val results: Set[Implicant], val vars: List[String]) {
 
+    def cost(order: Int) = {
+        results.foldLeft(0){_ + _.cost(order)}
+    }
     def finished = cols.size == 0
     def selectRow(row: PrimeImplicant) = {
         val nRows = rows.filter(_ != row).map(_.reduce(row.terms))
         val nCols = cols -- row.terms
         val nRes  = results + row.implicant
-        new PITable(nRows, nCols, nRes)
+        this.copy(rows=nRows, cols=nCols, results=nRes)
     }
 
     def reduceRows = {
@@ -122,7 +136,7 @@ class PITable(val rows: List[PrimeImplicant], val cols: Set[Int], val results: S
                 nRows = nRows.filter(_ != a)
             }
         }
-        new PITable(nRows, cols, results)
+        this.copy(rows=nRows)
     }
 
     def rowsForMinterm(m: Int) = (for (row <- rows if row.covers(m)) yield row).filter(_ != ())
@@ -159,6 +173,10 @@ class PITable(val rows: List[PrimeImplicant], val cols: Set[Int], val results: S
 
 class Implicant(val minterm: Int, val tag:Int=1, val group:List[Int]=Nil) {
     var prime: Boolean = true
+
+    def cost(order: Int): Int = {
+        order - group.size
+    }
 
     def order(): Int = {
         return group.length

@@ -1,15 +1,29 @@
 QMM-SCALA
 
-A scala implementation of the Quine McCluskey method I learned in Advanced Logic Design, and a chance to practice functional programming.
+A scala implementation of the Quine McCluskey method, currently only for single functions. It implements the Branching method using recursion.
 
 API:
 
 qmm.method(list of minterms, list of don't cares, list of variable names)
 
+EXAMPLES:
+
+> method(List(0,1,2,3,4,7,6,8,11,13,15), Nil, letters("ABCD"))
+A'B' + A'D' + ABD + B'C'D' + CD
+
+> method(List(1,2,3,5,9,10,11,18,19,20,21,23,25,26,27),Nil,letters("ABCDE"))
+A'B'D'E + AB'CD' + AB'CE + BC'E + C'D
+
+> method(List(8,10,16,18,19,20,21,23,25,27,29,40,42,43,46,47,55), Nil, letters("ABCDEF"))
+A'BC'D'F' + A'BC'DE' + A'BCE'F + A'BD'EF + AB'CE + B'CD'F' + BC'DEF
+
+> method(List(1,4,7,14,17,20,21,22,23), List(0,3,6,19,30), letters("ABCDE"))
+AB'C + B'C'E + B'CE' + B'DE + CDE'
+
+
 TODOS:
   - Handle multiple functions
   - rewrite genImplicants to be more functional
-  - Implement Branching or Petrick's Method for cyclic patterns.
   - Implement optional tabular output
-  - Handle special cases better
-  - Store implicants more efficiently (bitfield instead of a set)
+  - Handle special cases better (eg. result is a 1)
+
